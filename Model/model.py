@@ -50,7 +50,7 @@ def creat_token(example):
 tokenized_dataset = dataset.map(creat_token, batched=True)
 
 arguments = Seq2SeqTrainingArguments(
-    output_dir= "./vit5-qa-checkpoint",
+    output_dir= "./vnt5-qa-checkpoint",
     eval_strategy = "steps", 
     save_strategy= "steps",
     save_total_limit = 1,

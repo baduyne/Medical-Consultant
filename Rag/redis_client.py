@@ -7,19 +7,10 @@ from redis.commands.search.field import TextField, VectorField
 from redis.commands.search.index_definition import IndexDefinition
 from redis.commands.search.query import Query
 
-<<<<<<<< HEAD:Rag/redis_rag.py
-
-model = SentenceTransformer("all-MiniLM-L6-v2")
-r = redis.Redis(host="localhost", port=6379, decode_responses=False)  
-    
-def merge_and_dedup_words(x):
-    merged = f"{x['keyword']} {x['title']} {x['question']} {{x['context']}}"
-========
 model = SentenceTransformer("all-MiniLM-L6-v2")
 r = redis.Redis(host="localhost", port=6379, decode_responses=False)
 def merge_and_dedup_words(x):
     merged = f"{x['title']} {x['question']} {x['context']}"
->>>>>>>> 6401948 (WIP: temporary save before rebase):Rag/redis_client.py
     words = merged.split()
     seen = set()
     deduped_words = [word for word in words if not (word in seen or seen.add(word))]

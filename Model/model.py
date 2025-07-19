@@ -1,26 +1,24 @@
 import os
-import torch
-from torch.utils.data import DataLoader
-from torch.optim import AdamW
-from tqdm import tqdm
 from datasets import load_dataset
 from transformers import (
-    T5Tokenizer,
-    T5ForConditionalGeneration,
-    DataCollatorForSeq2Seq,
-    get_scheduler
+    Seq2SeqTrainingArguments, Seq2SeqTrainer, DataCollatorForSeq2Seq,
+    T5Tokenizer, T5ForConditionalGeneration, AutoTokenizer, AutoModelForSeq2SeqLM
 )
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from peft import PeftModel, PeftConfig, LoraConfig, get_peft_model, prepare_model_for_kbit_training
+import wandb
 
-from torch.cuda.amp import autocast, GradScaler
+# --- WANDB Login ---
+os.environ["WANDB_API_KEY"] = "" # fill your token
+wandb.login()
 
-# Khai báo model name
+# --- Model name and output path ---
 model_name = "VietAI/vit5-base"
+saved_model_path = "./vit5-base-qa-final"
 
-# Load model + tokenizer + LoRA
-def load_model():
+# --- Load model/tokenizer/data_collator ---
+def load_model_and_tokenizer():
     tokenizer = T5Tokenizer.from_pretrained(model_name)
-    model = T5ForConditionalGeneration.from_pretrained(model_name, device_map="auto")
+    model = T5ForConditionalGeneration.from_pretrained(model_name, device_map="auto", load_in_4bit = True)
     model = prepare_model_for_kbit_training(model)
 
     peft_config = LoraConfig(
@@ -30,18 +28,18 @@ def load_model():
         lora_dropout=0.1,
         bias="none"
     )
-    peft_model = get_peft_model(model, peft_config)
+    model = get_peft_model(model, peft_config)
 
     data_collator = DataCollatorForSeq2Seq(
         tokenizer=tokenizer,
         model=model,
         padding=True,
-        return_tensors="pt"
-    )
-    return peft_model, tokenizer, data_collator
+        return_tensors="pt")
 
-# Tiền xử lý dữ liệu
-def preprocess_data(tokenizer, data_collator, batch_size=8):
+    return model, tokenizer, data_collator
+
+# --- Preprocess dataset ---
+def preprocess_data(tokenizer):
     dataset = load_dataset("parquet", data_files={
         "train": "/kaggle/input/medical-qa-dataset/Data/Dataset/train-00000-of-00001.parquet",
         "valid": "/kaggle/input/medical-qa-dataset/Data/Dataset/validation-00000-of-00001.parquet",
@@ -49,24 +47,32 @@ def preprocess_data(tokenizer, data_collator, batch_size=8):
     })
 
     def preprocess_function(examples):
+        # Tạo chuỗi input_text dạng "question: ... context: ..."
+        input_texts = [f"question: {q} context: {c}" for q, c in zip(examples["question"], examples["context"])]
+    
+        # Tokenize input
         model_inputs = tokenizer(
-            examples["question"], examples["context"],
-            max_length=2048, truncation=True, padding="max_length"
+            input_texts,
+            max_length=2048,
+            truncation=True,
+            padding="max_length"
         )
-
+    
+        # Tokenize output (labels)
         with tokenizer.as_target_tokenizer():
             labels = tokenizer(
                 examples["answer"],
-                max_length=512, truncation=True, padding="max_length"
+                max_length=256,
+                truncation=True,
+                padding="max_length"
             )
-
-        labels_ids = labels["input_ids"]
-        labels_ids = [
+    
+        # Thay pad_token_id thành -100 để không tính loss
+        model_inputs["labels"] = [
             [(token if token != tokenizer.pad_token_id else -100) for token in seq]
-            for seq in labels_ids
+            for seq in labels["input_ids"]
         ]
-
-        model_inputs["labels"] = labels_ids
+    
         return model_inputs
 
     tokenized_dataset = dataset.map(
@@ -75,102 +81,48 @@ def preprocess_data(tokenizer, data_collator, batch_size=8):
         remove_columns=dataset["train"].column_names
     )
 
-    train_dataloader = DataLoader(
-        tokenized_dataset["train"],
-        batch_size=batch_size,
-        shuffle=True,
-        collate_fn=data_collator
-    )
+    return tokenized_dataset
 
-    eval_dataloader = DataLoader(
-        tokenized_dataset["valid"],
-        batch_size=batch_size,
-        collate_fn=data_collator
-    )
+# --- Main ---
+model, tokenizer, data_collator = load_model_and_tokenizer()
+tokenized_dataset = preprocess_data(tokenizer)
 
-    return train_dataloader, eval_dataloader
+training_args = Seq2SeqTrainingArguments(
+    output_dir="tmp/",
+    do_train=True,
+    do_eval=True,
+    eval_strategy="steps",   
+    save_strategy="steps",
+    save_steps=500,
+    eval_steps=500,
+    logging_dir="./log",
+    logging_steps=100,
+    logging_first_step=True, 
+    save_total_limit=1,
+    num_train_epochs=40,
+    per_device_train_batch_size=8,
+    per_device_eval_batch_size=8,
+    learning_rate=1e-5,
+    warmup_ratio=0.05,
+    weight_decay=0.01,
+    fp16=True,
+    report_to="wandb",
+    run_name="vit5-medicalqa-lora",
+    load_best_model_at_end=True,
+    metric_for_best_model="eval_loss",
+    greater_is_better=False,
+    label_names=["labels"]
+)
 
-# Hàm train với multi-GPU + mixed precision + early stopping
-def train(peft_model, train_dataloader, eval_dataloader, num_epochs=30, patience=5):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+trainer = Seq2SeqTrainer(
+    model=model,
+    args=training_args,
+    data_collator=data_collator,
+    train_dataset=tokenized_dataset["train"],
+    eval_dataset=tokenized_dataset["valid"]
+)
 
-    # Hỗ trợ multi-GPU
-    if torch.cuda.device_count() > 1:
-        print("Using", torch.cuda.device_count(), "GPUs")
-        peft_model = torch.nn.DataParallel(peft_model)
+trainer.train(resume_from_checkpoint=True)
 
-    peft_model.to(device)
-
-    optimizer = AdamW(peft_model.parameters(), lr=1e-5, weight_decay=0.01)
-    num_training_steps = num_epochs * len(train_dataloader)
-    lr_scheduler = get_scheduler(
-        "linear",
-        optimizer=optimizer,
-        num_warmup_steps=int(0.05 * num_training_steps),
-        num_training_steps=num_training_steps,
-    )
-
-    scaler = GradScaler()  # for mixed precision
-    best_eval_loss = float("inf")
-    epochs_without_improvement = 0
-
-    for epoch in range(num_epochs):
-        peft_model.train()
-        total_loss = 0
-        progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch+1}/{num_epochs}")
-
-        for batch in progress_bar:
-            batch = {k: v.to(device) for k, v in batch.items()}
-            optimizer.zero_grad()
-
-            with autocast():  # mixed precision
-                outputs = peft_model(**batch)
-                loss = outputs.loss
-
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-            lr_scheduler.step()
-
-            total_loss += loss.item()
-            progress_bar.set_postfix(loss=loss.item())
-
-        avg_loss = total_loss / len(train_dataloader)
-        print(f"Epoch {epoch+1} avg training loss: {avg_loss:.4f}")
-
-        # Evaluation
-        peft_model.eval()
-        eval_loss = 0.0
-        with torch.no_grad():
-            for batch in eval_dataloader:
-                batch = {k: v.to(device) for k, v in batch.items()}
-                with autocast():
-                    outputs = peft_model(**batch)
-                    loss = outputs.loss
-                    if isinstance(loss, torch.Tensor) and loss.dim() > 0:
-                        loss = loss.mean()
-                eval_loss += loss.item()
-
-        avg_eval_loss = eval_loss / len(eval_dataloader)
-        print(f"Epoch {epoch+1} eval loss: {avg_eval_loss:.4f}")
-
-        # Early stopping
-        if avg_eval_loss < best_eval_loss:
-            best_eval_loss = avg_eval_loss
-            epochs_without_improvement = 0
-            peft_model.save_pretrained("VietAI/vit5-base_fine_tune")
-            print("Model saved")
-        else:
-            epochs_without_improvement += 1
-            print(f"No improvement for {epochs_without_improvement} epoch(s)")
-            if epochs_without_improvement >= patience:
-                print(f"Early stopping triggered at epoch {epoch+1}")
-                break
-
-# ---- CHẠY TOÀN BỘ ----
-if __name__ == "__main__":
-    batch_size = 16  # tùy vào bộ nhớ GPU
-    peft_model, tokenizer, data_collator = load_model()
-    train_dataloader, eval_dataloader = preprocess_data(tokenizer, data_collator, batch_size)
-    train(peft_model, train_dataloader, eval_dataloader, num_epochs=30, patience=5)
-    tokenizer.save_pretrained("VietAI/vit5-base_fine_tune")
+trainer.save_model(saved_model_path)
+tokenizer.save_pretrained(saved_model_path)

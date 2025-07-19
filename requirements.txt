@@ -1,0 +1,30 @@
+# Core backend
+fastapi
+uvicorn
+
+# Templating + Static (nếu bạn dùng HTML frontend)
+jinja2
+
+# Hugging Face & Transformers
+transformers
+datasets
+sentence-transformers
+accelerate
+bitsandbytes
+peft
+wandb
+
+# Torch (cho model inference/training)
+torch
+
+# Redis
+redis
+
+# Data analysis & visualization (nếu dùng để debug/log hoặc thống kê)
+pandas
+numpy
+matplotlib
+seaborn
+
+# Optional: Typing, validation
+pydantic

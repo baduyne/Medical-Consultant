@@ -1,23 +1,21 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="vi">
 <head>
   <meta charset="UTF-8">
-  <title>AI Consultant Chatbot</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <title>Medical Consultant</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="chat-container">
-    <div class="chat-header">AI Consultant</div>
-
+    <div class="header">Medical Consultant</div>
     <div class="chat-box" id="chat-box">
     </div>
-
-    <div class="chat-input-area">
-      <input type="text" id="user-input" placeholder="Nhận câu hỏi của bạn..." autocomplete="off" />
-      <button id="send-button">Gửi</button>
+    <div class="input-area">
+      <input type="text" id="user-input" placeholder="Nhập vào câu hỏi của bạn...">
+      <button onclick="sendMessage()">Gửi</button>
     </div>
   </div>
 
-  <script src="/static/predict.js"></script>
+  <script src="script.js"></script>
 </body>
 </html>

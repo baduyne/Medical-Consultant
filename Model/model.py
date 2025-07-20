@@ -8,7 +8,7 @@ from peft import PeftModel, PeftConfig, LoraConfig, get_peft_model, prepare_mode
 import wandb
 
 # --- WANDB Login ---
-os.environ["WANDB_API_KEY"] = "" # fill your token
+os.environ["WANDB_API_KEY"] = "89a1b863113bdef9534f6ba83a2f88fc36ec0718" # fill your token
 wandb.login()
 
 # --- Model name and output path ---
@@ -99,7 +99,7 @@ training_args = Seq2SeqTrainingArguments(
     logging_steps=100,
     logging_first_step=True, 
     save_total_limit=1,
-    num_train_epochs=40,
+    num_train_epochs=10,
     per_device_train_batch_size=8,
     per_device_eval_batch_size=8,
     learning_rate=1e-5,

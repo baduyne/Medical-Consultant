@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  redis-stack:
+    image: redis/redis-stack:latest
+    container_name: redis-stack
+    ports:
+      - "3107:6379"    # Redis port
+      - "8001:8001"    # RedisInsight UI
+    restart: unless-stopped
+
+  medical-chatbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: medical-chatbot
+    ports:
+      - "8000:8000"    
+    depends_on:
+      - redis-stack
+    environment:
+      REDIS_HOST: redis-stack
+      REDIS_PORT: 6379
+    restart: unless-stopped

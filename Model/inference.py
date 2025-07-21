@@ -1,11 +1,11 @@
-from Rag.rag_pipeline import *
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from Rag.rag_pipeline import *
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, BitsAndBytesConfig
 from peft import PeftModel
 import torch
-from Model.model import *
+
 model_name = "VietAI/vit5-base"
 saved_model_path = "./vit5-base-qa-final"
 
@@ -14,14 +14,8 @@ def get_response(question):
     tokenizer = AutoTokenizer.from_pretrained(saved_model_path)
 
     # Load base model
-    base_model = AutoModelForSeq2SeqLM.from_pretrained(
-        model_name,
-        # device_map="auto",  
-        load_in_4bit=True,
-    )
+    model = AutoModelForSeq2SeqLM.from_pretrained(saved_model_path, device_map="cpu")
 
-    # Load LoRA adapter
-    model = PeftModel.from_pretrained(base_model, saved_model_path)
     model.eval()
     context = search_redis(question)
 

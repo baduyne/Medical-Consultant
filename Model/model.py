@@ -1,24 +1,36 @@
 import os
+import argparse
+import wandb
+from huggingface_hub import login
 from datasets import load_dataset
 from transformers import (
-    Seq2SeqTrainingArguments, Seq2SeqTrainer, DataCollatorForSeq2Seq,
-    T5Tokenizer, T5ForConditionalGeneration, AutoTokenizer, AutoModelForSeq2SeqLM
+    AutoTokenizer, AutoModelForSeq2SeqLM,
+    DataCollatorForSeq2Seq,
+    Seq2SeqTrainingArguments, Seq2SeqTrainer
 )
-from peft import PeftModel, PeftConfig, LoraConfig, get_peft_model, prepare_model_for_kbit_training
-import wandb
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
-# --- WANDB Login ---
-os.environ["WANDB_API_KEY"] = "89a1b863113bdef9534f6ba83a2f88fc36ec0718" # fill your token
-wandb.login()
+MODEL_NAME = "ntphuc149/ViBidLAQA_base"
 
-# --- Model name and output path ---
-model_name = "VietAI/vit5-base"
-saved_model_path = "./vit5-base-qa-final"
+# --- Biến môi trường ---
+def get_env_variable(varname):
+    value = os.environ.get(varname)
+    if value is None:
+        raise EnvironmentError(f"Biến môi trường '{varname}' chưa được set.")
+    return value
 
-# --- Load model/tokenizer/data_collator ---
-def load_model_and_tokenizer():
-    tokenizer = T5Tokenizer.from_pretrained(model_name)
-    model = T5ForConditionalGeneration.from_pretrained(model_name, device_map="auto", load_in_4bit = True)
+# --- Load model, tokenizer, LoRA, collator ---
+def load_model_and_tokenizer(model_name):
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForSeq2SeqLM.from_pretrained(
+        pretrained_model_name_or_path=model_name,
+        device_map="auto",
+        load_in_4bit=True
+    )
+
+    tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "right"
+
     model = prepare_model_for_kbit_training(model)
 
     peft_config = LoraConfig(
@@ -34,95 +46,104 @@ def load_model_and_tokenizer():
         tokenizer=tokenizer,
         model=model,
         padding=True,
-        return_tensors="pt")
+        return_tensors="pt"
+    )
 
     return model, tokenizer, data_collator
 
-# --- Preprocess dataset ---
-def preprocess_data(tokenizer):
+# --- Tiền xử lý dữ liệu ---
+def preprocess_data(tokenizer, train_path, valid_path):
     dataset = load_dataset("parquet", data_files={
-        "train": "/kaggle/input/medical-qa-dataset/Data/Dataset/train-00000-of-00001.parquet",
-        "valid": "/kaggle/input/medical-qa-dataset/Data/Dataset/validation-00000-of-00001.parquet",
-        "test": "/kaggle/input/medical-qa-dataset/Data/Dataset/test-00000-of-00001.parquet"
+        "train": train_path,
+        "valid": valid_path
     })
 
     def preprocess_function(examples):
-        # Tạo chuỗi input_text dạng "question: ... context: ..."
-        input_texts = [f"question: {q} context: {c}" for q, c in zip(examples["question"], examples["context"])]
-    
-        # Tokenize input
-        model_inputs = tokenizer(
-            input_texts,
-            max_length=2048,
-            truncation=True,
-            padding="max_length"
-        )
-    
-        # Tokenize output (labels)
+        inputs = [f"question: {q} context: {c}" for q, c in zip(examples["question"], examples["context"])]
+        model_inputs = tokenizer(inputs, max_length=1024, truncation=True, padding="max_length")
+
         with tokenizer.as_target_tokenizer():
-            labels = tokenizer(
-                examples["answer"],
-                max_length=256,
-                truncation=True,
-                padding="max_length"
-            )
-    
-        # Thay pad_token_id thành -100 để không tính loss
+            labels = tokenizer(examples["answer"], max_length=256, truncation=True, padding="max_length")
+
         model_inputs["labels"] = [
             [(token if token != tokenizer.pad_token_id else -100) for token in seq]
             for seq in labels["input_ids"]
         ]
-    
+
         return model_inputs
 
-    tokenized_dataset = dataset.map(
+    tokenized = dataset.map(
         preprocess_function,
         batched=True,
         remove_columns=dataset["train"].column_names
     )
 
-    return tokenized_dataset
+    return tokenized
 
-# --- Main ---
-model, tokenizer, data_collator = load_model_and_tokenizer()
-tokenized_dataset = preprocess_data(tokenizer)
 
-training_args = Seq2SeqTrainingArguments(
-    output_dir="tmp/",
-    do_train=True,
-    do_eval=True,
-    eval_strategy="steps",   
-    save_strategy="steps",
-    save_steps=500,
-    eval_steps=500,
-    logging_dir="./log",
-    logging_steps=100,
-    logging_first_step=True, 
-    save_total_limit=1,
-    num_train_epochs=10,
-    per_device_train_batch_size=8,
-    per_device_eval_batch_size=8,
-    learning_rate=1e-5,
-    warmup_ratio=0.05,
-    weight_decay=0.01,
-    fp16=True,
-    report_to="wandb",
-    run_name="vit5-medicalqa-lora",
-    load_best_model_at_end=True,
-    metric_for_best_model="eval_loss",
-    greater_is_better=False,
-    label_names=["labels"]
-)
+def main():
+    parser = argparse.ArgumentParser()
 
-trainer = Seq2SeqTrainer(
-    model=model,
-    args=training_args,
-    data_collator=data_collator,
-    train_dataset=tokenized_dataset["train"],
-    eval_dataset=tokenized_dataset["valid"]
-)
+    parser.add_argument("--saved_model_path", type=str, default="./vnt5-base-qa-final")
+    parser.add_argument("--run_name", type=str, default="run-wandb")
+    parser.add_argument("--train_path", type=str, required=True)
+    parser.add_argument("--valid_path", type=str, required=True)
+    parser.add_argument("--num_train_epochs", type=int, default=10)
+    parser.add_argument("--batch_size", type=int, default=8)
+    args = parser.parse_args()
 
-trainer.train(resume_from_checkpoint=True)
+    hf_token = get_env_variable("HF_TOKEN")
+    wandb_key = get_env_variable("WANDB_API_KEY")
 
-trainer.save_model(saved_model_path)
-tokenizer.save_pretrained(saved_model_path)
+    # Login
+    login(token=hf_token)
+    wandb.login(key=wandb_key)
+
+    # Load model and data
+    model, tokenizer, data_collator = load_model_and_tokenizer(MODEL_NAME)
+    tokenized_dataset = preprocess_data(tokenizer, args.train_path, args.valid_path)
+
+    # Training arguments
+    training_args = Seq2SeqTrainingArguments(
+        output_dir="tmp/",
+        do_train=True,
+        do_eval=True,
+        evaluation_strategy="steps",
+        save_strategy="steps",
+        save_steps=500,
+        eval_steps=500,
+        logging_dir="./log",
+        logging_steps=100,
+        logging_first_step=True,
+        save_total_limit=1,
+        num_train_epochs=args.num_train_epochs,
+        per_device_train_batch_size=args.batch_size,
+        per_device_eval_batch_size=args.batch_size,
+        learning_rate=1e-5,
+        warmup_ratio=0.05,
+        weight_decay=0.01,
+        fp16=True,
+        report_to="wandb",
+        run_name=args.run_name,
+        load_best_model_at_end=True,
+        metric_for_best_model="eval_loss",
+        greater_is_better=False,
+        label_names=["labels"]
+    )
+
+    trainer = Seq2SeqTrainer(
+        model=model,
+        args=training_args,
+        data_collator=data_collator,
+        train_dataset=tokenized_dataset["train"],
+        eval_dataset=tokenized_dataset["valid"]
+    )
+
+    trainer.train()
+
+    # Save model and tokenizer
+    trainer.save_model(args.saved_model_path)
+    tokenizer.save_pretrained(args.saved_model_path)
+    
+if __name__ == "__main__":
+    main()

@@ -25,5 +25,5 @@ async def home(request: Request):
 # Route: API xử lý câu hỏi từ frontend
 @app.post("/chat")
 async def chat_response(chat_message: ChatMessage):
-    response = get_response(chat_message.message) # git inference from model
+    response = get_response(chat_message.message) # get inference from model
     return JSONResponse({"response": response})

@@ -6,28 +6,35 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, BitsAndBytesConfi
 from peft import PeftModel
 import torch
 
-model_name = "VietAI/vit5-base"
-saved_model_path = "vit5-base-qa-final"
+fine_tuned_model = "baduyne/vnt5-medical-gqa" # mô hình được fine tuning trước đó 
+
+tokenizer = AutoTokenizer.from_pretrained(fine_tuned_model)  # hoặc model gốc bạn dùng để fine-tune
+
+
+model = AutoModelForSeq2SeqLM.from_pretrained(fine_tuned_model)
+
+# Padding config
+tokenizer.pad_token = tokenizer.eos_token
+tokenizer.padding_side = "right"
+model.eval()
 
 def get_response(question):
-    # Load tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(saved_model_path)
 
-    # Load base model
-    model = AutoModelForSeq2SeqLM.from_pretrained(saved_model_path, device_map="cpu")
-
-    model.eval()
     context = search_redis(question)
-
     if len(context) == 0:
         return "Xin lỗi! Câu hỏi bạn nằm ngoài sự hiểu biết của tôi."
-
-    input_text = f"question: {question} context: {context}"
-
-    inputs = tokenizer(input_text, return_tensors="pt", truncation=True, padding="max_length", max_length=2048)
-    inputs = {k: v for k, v in inputs.items() if k != "token_type_ids"}
-
     with torch.no_grad():
-        outputs = model.generate(**inputs, max_new_tokens=256)
-
-    return tokenizer.decode(outputs[0], skip_special_tokens=True)
+        # Chuẩn bị input
+        inputs = tokenizer(f"question: {question} context: {context}", return_tensors="pt", max_length=256, truncation=True)
+        # Sinh văn bản
+        output_ids = model.generate(
+            input_ids=inputs["input_ids"],
+            attention_mask=inputs["attention_mask"],
+            max_length=256,
+            top_p=0.9,
+            top_k=50,
+            repetition_penalty=1.2,
+            no_repeat_ngram_size=3,
+            do_sample=True
+        )
+        return tokenizer.decode(output_ids[0], skip_special_tokens=True)

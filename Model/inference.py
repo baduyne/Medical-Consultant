@@ -8,18 +8,18 @@ import torch
 
 fine_tuned_model = "baduyne/vnt5-medical-gqa" # mô hình được fine tuning trước đó 
 
-tokenizer = AutoTokenizer.from_pretrained(fine_tuned_model)  # hoặc model gốc bạn dùng để fine-tune
+def load_model():
+    tokenizer = AutoTokenizer.from_pretrained(fine_tuned_model)  # hoặc model gốc bạn dùng để fine-tune
+    model = AutoModelForSeq2SeqLM.from_pretrained(fine_tuned_model)
+    # Padding config
+    tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "right"
+    model.eval()
+    return model, tokenizer
 
 
-model = AutoModelForSeq2SeqLM.from_pretrained(fine_tuned_model)
-
-# Padding config
-tokenizer.pad_token = tokenizer.eos_token
-tokenizer.padding_side = "right"
-model.eval()
-
-def get_response(question):
-
+def get_response(model,tokenizer, question):
+    model, tokenizer = load_model()
     context = search_redis(question)
     if len(context) == 0:
         return "Xin lỗi! Câu hỏi bạn nằm ngoài sự hiểu biết của tôi."

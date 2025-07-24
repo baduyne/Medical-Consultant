@@ -16,6 +16,12 @@ class ChatMessage(BaseModel):
 # Setup templates
 templates = Jinja2Templates(directory="templates")
 
+@app.on_event("startup")
+def on_startup():
+    global model, tokenizer
+    model, tokenizer = load_model()
+
+
 # Route: Trang chính
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -25,5 +31,5 @@ async def home(request: Request):
 # Route: API xử lý câu hỏi từ frontend
 @app.post("/chat")
 async def chat_response(chat_message: ChatMessage):
-    response = get_response(chat_message.message) # get inference from model
+    response = get_response(model, tokenizer, chat_message.message) # get inference from model
     return JSONResponse({"response": response})

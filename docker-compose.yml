@@ -15,10 +15,15 @@ services:
       dockerfile: Dockerfile
     container_name: medical-chatbot
     ports:
-      - "8000:8000"    
+      - "8000:8000"
     depends_on:
       - redis-stack
     environment:
       REDIS_HOST: redis-stack
       REDIS_PORT: 6379
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
     restart: unless-stopped

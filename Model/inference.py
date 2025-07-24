@@ -7,7 +7,7 @@ from peft import PeftModel
 import torch
 
 model_name = "VietAI/vit5-base"
-saved_model_path = "./vit5-base-qa-final"
+saved_model_path = "vit5-base-qa-final"
 
 def get_response(question):
     # Load tokenizer

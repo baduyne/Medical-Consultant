@@ -2,19 +2,27 @@ import pandas as pd
 import numpy as np
 import redis
 import json
-from sentence_transformers import SentenceTransformer
+from transformers import AutoTokenizer, AutoModel
 from redis.commands.search.field import TextField, VectorField
 from redis.commands.search.index_definition import IndexDefinition
 from redis.commands.search.query import Query
+import torch
 
-model = SentenceTransformer("all-MiniLM-L6-v2")
+tokenizer = AutoTokenizer.from_pretrained("vinai/phobert-base")
+model = AutoModel.from_pretrained("vinai/phobert-base")
+model.eval()
+
 r = redis.Redis(host="localhost", port=3107, decode_responses=False)
 
 def search_redis(query_text, top_k=3, similiarity=0.85):
     score_threshold = 1 - similiarity
-    vec = model.encode(query_text).astype(np.float32).tobytes()
+    inputs = tokenizer(query_text, return_tensors="pt")
+    with torch.no_grad():
+        outputs = model(**inputs)
+        embedding = outputs.last_hidden_state.mean(dim=1)
+        vec = embedding.detach().cpu().numpy().astype(np.float32).tobytes()
+
     query_str = f'*=>[KNN {top_k} @embedding $vec AS score]'
-    
     q = Query(query_str)\
         .return_fields("context", "score")\
         .sort_by("score")\
@@ -22,7 +30,6 @@ def search_redis(query_text, top_k=3, similiarity=0.85):
 
     results = r.ft("doc_index").search(q, query_params={"vec": vec})
 
-    # Lọc theo ngưỡng score
     filtered = ""
     for doc in results.docs:
         try:
@@ -33,4 +40,3 @@ def search_redis(query_text, top_k=3, similiarity=0.85):
             pass
 
     return filtered
-

@@ -63,10 +63,12 @@ def save_embedding(full_dataset):
         })
 
 def main():
-    train = pd.read_parquet("./Data/Dataset/train.parquet")
     valid = pd.read_parquet("./Data/Dataset/validation.parquet")
     test = pd.read_parquet("./Data/Dataset/test.parquet")
-    full_dataset = pd.concat([train, valid, test])
+
+    # please assum that both valid and test dataset are unseen data that 
+    # It is latest knowleadge  
+    full_dataset = pd.concat([valid, test])
 
     save_embedding(full_dataset)
 

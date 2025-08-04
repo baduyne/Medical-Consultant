@@ -19,7 +19,7 @@ def load_model():
 
 
 def get_response(model,tokenizer, question):
-    model, tokenizer = load_model()
+    
     context = search_redis(question)
     if len(context) == 0:
         return "Xin lỗi! Câu hỏi bạn nằm ngoài sự hiểu biết của tôi."

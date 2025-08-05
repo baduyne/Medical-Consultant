@@ -12,6 +12,7 @@ This project is a Vietnamese-language chatbot system designed for medical questi
         - The raw crawled dataset is not provided due to data protection policies.
         - The data collection and preprocessing pipeline is not included in this repository.
 - **Trained Model**: [baduyne/vnt5-medical-gqa](https://huggingface.co/baduyne/vnt5-medical-gqa/tree/main)
+- **Evaluate Metric**: BLEU = 42.4
 ---
 
 ## Features
@@ -53,3 +54,4 @@ sudo systemctl restart docker
 - HuggingFace, Redis Stack, SentenceTransformers
 
 ---
+

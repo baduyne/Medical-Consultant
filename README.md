@@ -1,4 +1,4 @@
-﻿# RAG-based Medical Chatbot with T5 and Redis Stack
+﻿# Dense Retrieval-based Medical Chatbot with T5 and Redis Stack
 
 This project is a Vietnamese-language chatbot system designed for medical question answering. It uses a **Retrieval-Augmented Generation (RAG)** architecture with the following components:
 
@@ -54,5 +54,6 @@ sudo systemctl restart docker
 - HuggingFace, Redis Stack, SentenceTransformers
 
 ---
+
 
 
